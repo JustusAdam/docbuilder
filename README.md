@@ -1,4 +1,4 @@
-# docbuilder
+# docbuilder [![Travis Status](https://travis-ci.org/JustusAdam/docbuilder.svg?branch=master)](https://travis-ci.org/JustusAdam/docbuilder)
 
 
 This used to be a small build script that would compile some written notes and from a directory to html.
