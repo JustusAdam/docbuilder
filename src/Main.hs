@@ -1,37 +1,38 @@
-{-# LANGUAGE LambdaCase     #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE LambdaCase         #-}
+{-# LANGUAGE MultiWayIf         #-}
+{-# LANGUAGE NamedFieldPuns     #-}
+{-# LANGUAGE OverloadedStrings  #-}
 module Main where
 
 
+import           Control.Concurrent
+import           Control.Exception
+import           Control.Monad
 import           Data.ByteString.Lazy          as L (writeFile)
 import           Data.Char
 import           Data.Foldable
+import           Data.List
+import           Data.Maybe                    (isJust)
 import           Data.Monoid
+import qualified Data.Text                     as T
+import qualified Data.Text.IO                  as TIO
+import           Data.Traversable
+import           Network.HTTP.Types.Header
+import           Network.HTTP.Types.Status
+import           Network.Mime
+import           Network.Wai
+import           Network.Wai.Handler.Warp
+import           System.Console.CmdArgs
 import           System.Directory
 import           System.Environment
 import           System.FilePath
+import           System.FSNotify               as F
 import           System.Process
 import           Text.Blaze.Html.Renderer.Utf8
-import qualified Text.Pandoc as P
-import Network.Wai.Handler.Warp
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import Network.HTTP.Types.Status
-import Network.Mime
-import Network.HTTP.Types.Header
-import Network.Wai
-import System.Console.CmdArgs
-import Data.List
-import Control.Monad
-import Data.Traversable
-import Text.Mustache (localAutomaticCompile, substitute, (~>), object)
-import System.FSNotify as F
-import Data.Maybe (isJust)
-import Control.Exception
-import Control.Concurrent
+import           Text.Mustache                 (localAutomaticCompile, object,
+                                                substitute, (~>))
+import qualified Text.Pandoc                   as P
 
 
 data Compiler = Compiler { compilerName    :: String
@@ -41,9 +42,9 @@ data Compiler = Compiler { compilerName    :: String
                          }
 
 
-data DocbuilderOpts = DocbuilderOpts { commands :: [String]
-                                     , sourceFolders :: [FilePath]
-                                     , port :: Int
+data DocbuilderOpts = DocbuilderOpts { commands       :: [String]
+                                     , sourceFolders  :: [FilePath]
+                                     , port           :: Int
                                      , pandocTemplate :: Maybe String
                                      } deriving (Data)
 
