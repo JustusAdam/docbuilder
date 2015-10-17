@@ -46,14 +46,17 @@ data DocbuilderOpts = DocbuilderOpts { commands       :: [String]
                                      , sourceFolders  :: [FilePath]
                                      , port           :: Int
                                      , pandocTemplate :: Maybe String
+                                     , indexTemplate  :: Maybe String
                                      } deriving (Data)
 
 
+docArgs :: DocbuilderOpts
 docArgs = DocbuilderOpts
   { commands = def &= args
   , sourceFolders = def
   , port = 8080 &= name "p"
   , pandocTemplate = def &= name "t"
+  , indexTemplate = def &= name "i"
   }
 
 
@@ -76,7 +79,12 @@ compilers =
   ]
 
 
+findCompiler :: FilePath -> Maybe Compiler
 findCompiler file = find (($ file) . eligibilityTest) compilers
+
+
+makeTargetName :: Compiler -> FilePath -> FilePath
+makeTargetName (Compiler { newExtension }) = (buildDir </>) . (-<.> newExtension)
 
 
 compileMessage :: String -> String -> String -> String
@@ -126,15 +134,11 @@ compile :: DocbuilderOpts -> IO ()
 compile opts = do
   files <- join <$> traverse (\dir -> discoverTargets opts dir (buildDir </> dir)) (sourceFolders opts)
   createDirectoryIfMissing True buildDir
-  indexTemplate <- localAutomaticCompile "index.html"
-  case indexTemplate of
-    Left err -> print err
-    Right t ->
-      TIO.writeFile "build/index.html" $ substitute t
-        $ object ["documents" ~> map (\(a, Compiler {newExtension}) -> "/" <> a -<.> newExtension) files]
 
-  for_ files $ \(source, Compiler { newExtension , invocation, compilerName }) -> do
-    let target = buildDir </> source -<.> newExtension
+  maybe (return ()) (`makeIndex` files) (indexTemplate opts)
+
+  for_ files $ \(source, c@(Compiler { invocation, compilerName })) -> do
+    let target = makeTargetName c source
     needsRecompile <- do
       targetExists <- doesFileExist target
       if targetExists
@@ -147,6 +151,14 @@ compile opts = do
         putStrLn $ compileMessage compilerName source target
         invocation opts source target
       else putStrLn $ "Skipping " <> source <> " (no update required)."
+  where
+    makeIndex name files = do
+      indexTemplate <- localAutomaticCompile name
+      case indexTemplate of
+        Left err -> print err
+        Right t ->
+          TIO.writeFile "build/index.html" $ substitute t
+            $ object ["documents" ~> map (uncurry $ flip makeTargetName) files]
 
 
 
@@ -163,12 +175,9 @@ serve = flip run app
           docPath = "build" </> spath
           isAsset = "assets/" `isPrefixOf` spath
           indexPath = docPath </> "index.html"
-          serve path' = respond $
-                          responseFile
-                            ok200
-                            [(hContentType, defaultMimeLookup path)]
-                            path'
-                            Nothing
+          serveWithMime mime path' = respond $
+            responseFile ok200 [(hContentType, mime)] path' Nothing
+          serve = serveWithMime (defaultMimeLookup path)
       if isAsset
         then serve spath
         else do
@@ -176,7 +185,7 @@ serve = flip run app
           isDir <- (&&) <$> doesDirectoryExist docPath <*> doesFileExist indexPath
           if
             | isFile -> serve docPath
-            | isDir -> serve indexPath
+            | isDir -> serveWithMime (defaultMimeLookup "index.html") indexPath
             | otherwise -> respond $ responseLBS notFound404 [] "File not Found"
 
 
@@ -200,9 +209,9 @@ watch opts inner = do
     go cwd e = do
       let path = makeRelative cwd $ eventPath e
       case findCompiler path of
-        Just (Compiler { compilerName, invocation, newExtension }) -> do
+        Just c@(Compiler { compilerName, invocation }) -> do
           putStrLn $ "Recompiling " <> compilerName <> ": " <> path
-          invocation opts (cwd </> path) (cwd </> buildDir </> path -<.> newExtension)
+          invocation opts (cwd </> path) (cwd </> makeTargetName c path)
         Nothing -> putStrLn $ "No compiler found for " <> path
 
 
