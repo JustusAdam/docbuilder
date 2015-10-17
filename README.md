@@ -13,6 +13,8 @@ Markdown compilation relies on the [pandoc][] library and is directly linked int
 
 Asciidoc compilation relies on [asciidoctor][] being installed on your system in your `$PATH`.
 
+[asciidoctor]: https://asciidoctor.org
+[pandoc]: https://hackage.haskell.org/package/pandoc
 
 ## Usage
 
@@ -29,3 +31,13 @@ Asciidoc compilation relies on [asciidoctor][] being installed on your system in
       -i --indextemplate=FILE.html   Mustache template for the index page
       -? --help                      Display help message
       -V --version                   Print version information
+
+
+Valid command are:
+
+command | chainable | effect
+-|-|-
+`compile` | Yes | Compile all new contents of the source directories into the build directory mirroring the structure
+`clean` | Yes | Remove the build directory (recursively)
+`watch` | No | Monitor the source directories for change, recompile the output on every change. Usually chained after compile, aka `$ docbuilder compile watch`
+`serve` | No | Compile all new contents, create a webserver on the specified port serving the compiled files and watch for new changes in the source directories.
