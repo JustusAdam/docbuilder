@@ -35,9 +35,11 @@ Asciidoc compilation relies on [asciidoctor][] being installed on your system in
 
 Valid command are:
 
-command | chainable | effect
--|-|-
-`compile` | Yes | Compile all new contents of the source directories into the build directory mirroring the structure
-`clean` | Yes | Remove the build directory (recursively)
-`watch` | No | Monitor the source directories for change, recompile the output on every change. Usually chained after compile, aka `$ docbuilder compile watch`
-`serve` | No | Compile all new contents, create a webserver on the specified port serving the compiled files and watch for new changes in the source directories.
+| command | chainable | effect |
+|-|-|-|
+|`compile` | Yes | Compile all new contents of the source directories into the build directory mirroring the structure|
+|`clean` | Yes | Remove the build directory (recursively)|
+|`watch` | No | Monitor the source directories for change, recompile the output on every change. Usually chained after compile, aka `$ docbuilder compile watch`|
+|`serve` | No | Compile all new contents, create a webserver on the specified port serving the compiled files and watch for new changes in the source directories.|
+
+Non chainable commands do not exit and block the execution hence any command after `watch` or `serve` will not be executed.
