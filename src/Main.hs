@@ -2,6 +2,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE MultiWayIf #-}
 module Main where
 
 
@@ -27,6 +28,10 @@ import Data.List
 import Control.Monad
 import Data.Traversable
 import Text.Mustache (localAutomaticCompile, substitute, (~>), object)
+import System.FSNotify as F
+import Data.Maybe (isJust)
+import Control.Exception
+import Control.Concurrent
 
 
 data Compiler = Compiler { compilerName    :: String
@@ -70,6 +75,9 @@ compilers =
   ]
 
 
+findCompiler file = find (($ file) . eligibilityTest) compilers
+
+
 compileMessage :: String -> String -> String -> String
 compileMessage compiler from to =
   "Compiling " <> compiler <> ": " <> from <> " -> " <> to
@@ -104,7 +112,7 @@ discoverTargets opts sourceDir outDir = do
   files <- filter (`notElem` [".", ".."]) <$> getDirectoryContents sourceDir
   l <- for files $ \file -> do
     isDir <- doesDirectoryExist (sourceDir </> file)
-    case find (($ file) . eligibilityTest) compilers of
+    case findCompiler file of
       Just c@(Compiler { compilerName, invocation }) -> do
         let sourceFile = sourceDir </> file
         return [(sourceFile, c)]
@@ -153,6 +161,7 @@ serve = flip run app
           spath = T.unpack path
           docPath = "build" </> spath
           isAsset = "assets/" `isPrefixOf` spath
+          indexPath = docPath </> "index.html"
           serve path' = respond $
                           responseFile
                             ok200
@@ -162,10 +171,39 @@ serve = flip run app
       if isAsset
         then serve spath
         else do
-          exists <- doesFileExist docPath
-          if exists
-            then serve docPath
-            else respond $ responseLBS notFound404 [] "File not Found"
+          isFile <- doesFileExist docPath
+          isDir <- (&&) <$> doesDirectoryExist docPath <*> doesFileExist indexPath
+          if
+            | isFile -> serve docPath
+            | isDir -> serve indexPath
+            | otherwise -> respond $ responseLBS notFound404 [] "File not Found"
+
+
+watch :: DocbuilderOpts -> IO () -> IO ()
+watch opts inner = do
+  cwd <- getCurrentDirectory
+  F.withManager $ \manager -> do
+    for (filter (/= buildDir) $ sourceFolders opts) $ \dir ->
+      watchTree
+        manager
+        dir
+        isCompileable
+        (go cwd)
+    inner
+  where
+    isCompileable = isJust . findCompiler . eventPath
+    go cwd (Removed p _) = do
+      let path = cwd </> buildDir </> makeRelative cwd p
+      exists <- doesFileExist path
+      when exists $ removeFile path
+    go cwd e = do
+      let path = makeRelative cwd $ eventPath e
+      case findCompiler path of
+        Just (Compiler { compilerName, invocation, newExtension }) -> do
+          putStrLn $ "Recompiling " <> compilerName <> ": " <> path
+          invocation opts (cwd </> path) (cwd </> buildDir </> path -<.> newExtension)
+        Nothing -> putStrLn $ "No compiler found for " <> path
+
 
 
 main :: IO ()
@@ -173,5 +211,6 @@ main = cmdArgs docArgs >>= ($) <$> for_ . commands <*> switch
   where
     switch _ "clean" = cleanBuildDir
     switch a "compile" = compile a
-    switch (DocbuilderOpts { port }) "serve" = serve port
+    switch a "watch" = watch a (forever (threadDelay 1000000))
+    switch a@(DocbuilderOpts { port }) "serve" = compile a >> watch a (serve port)
     switch _ a = putStrLn $ "Unrecognized command " <> a
