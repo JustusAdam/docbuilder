@@ -10,7 +10,7 @@ import           Control.Concurrent
 import           Control.Monad
 import           Data.ByteString.Lazy          as L (writeFile)
 import           Data.Foldable
-import           Data.Function                 (on)
+import           Data.Function                 (on, (&))
 import           Data.List
 import           Data.Maybe                    (isJust)
 import           Data.Monoid
@@ -68,6 +68,7 @@ logsm = logm . show
 buildDir :: String
 buildDir = "build"
 
+
 compilers :: [Compiler]
 compilers =
   [ Compiler
@@ -120,8 +121,8 @@ markdown (DocbuilderOpts { pandocTemplate }) in' out = do
         Just tName -> readFile tName >>= go
 
 
-discoverTargets :: DocbuilderOpts -> FilePath -> FilePath -> IO [(FilePath, Compiler)]
-discoverTargets opts sourceDir outDir = do
+discoverTargets :: FilePath -> FilePath -> IO [(FilePath, Compiler)]
+discoverTargets sourceDir outDir = do
   files <- filter (`notElem` [".", ".."]) <$> getDirectoryContents sourceDir
   l <- for files $ \file -> do
     isDir <- doesDirectoryExist (sourceDir </> file)
@@ -129,13 +130,14 @@ discoverTargets opts sourceDir outDir = do
       Just c -> do
         let sourceFile = sourceDir </> file
         return [(sourceFile, c)]
-      Nothing | isDir -> discoverTargets opts (sourceDir </> file) (outDir </> file)
-      _ -> return mzero
+      Nothing | isDir -> discoverTargets (sourceDir </> file) (outDir </> file)
+      _ -> return []
   return $ join l
 
 
 scanDirectories :: DocbuilderOpts -> IO [(FilePath, Compiler)]
-scanDirectories opts = join <$> traverse (\dir -> discoverTargets opts dir (buildDir </> dir)) (sourceFolders opts)
+scanDirectories (DocbuilderOpts { sourceFolders }) =
+  join <$> traverse (($) <$> discoverTargets <*> (buildDir </>)) sourceFolders
 
 
 compile :: DocbuilderOpts -> IO ()
@@ -163,45 +165,54 @@ compile opts = do
 
 makeIndex :: DocbuilderOpts -> [(FilePath, Compiler)] -> IO ()
 makeIndex = maybe (const $ return ()) makeIndex' . indexTemplate
+
+
+makeIndex' :: FilePath -> [(FilePath, Compiler)] -> IO ()
+makeIndex' name' files = do
+  indexTemplate <- localAutomaticCompile name'
+  case indexTemplate of
+    Left err -> logsm err
+    Right t -> do
+      logm $ "Building index with template " <> name'
+      TIO.writeFile "build/index.html" $ substitute t
+        $ object [ "documents" ~> fileNames ]
   where
-    makeIndex' name' files = do
-      indexTemplate <- localAutomaticCompile name'
-      case indexTemplate of
-        Left err -> logsm err
-        Right t -> do
-          logm $ "Building index with template " <> name'
-          TIO.writeFile "build/index.html" $ substitute t
-            $ object
-              [ "documents" ~> (sortBy (compare `on` length) . map (\(fName, Compiler { newExtension }) -> fName -<.> newExtension)) files
-              ]
+    fileNames =
+      files
+      & map (\(fName, Compiler { newExtension }) -> fName -<.> newExtension)
+      & sortBy (compare `on` length)
 
 
 cleanBuildDir :: IO ()
-cleanBuildDir = doesDirectoryExist buildDir >>= flip when (removeDirectoryRecursive buildDir)
+cleanBuildDir =
+  doesDirectoryExist buildDir >>=
+    flip when (removeDirectoryRecursive buildDir)
 
 
 serve :: Int -> IO ()
 serve = flip run app
+
+
+app :: Application
+app request respond =
+  if isAsset
+    then serve' spath
+    else do
+      isFile <- doesFileExist docPath
+      isDir <- (&&) <$> doesDirectoryExist docPath <*> doesFileExist indexPath
+      if
+        | isFile -> serve' docPath
+        | isDir -> serveWithMime (defaultMimeLookup "index.html") indexPath
+        | otherwise -> respond $ responseLBS notFound404 [] "File not Found"
   where
-    app request respond =
-      if isAsset
-        then serve' spath
-        else do
-          isFile <- doesFileExist docPath
-          isDir <- (&&) <$> doesDirectoryExist docPath <*> doesFileExist indexPath
-          if
-            | isFile -> serve' docPath
-            | isDir -> serveWithMime (defaultMimeLookup "index.html") indexPath
-            | otherwise -> respond $ responseLBS notFound404 [] "File not Found"
-      where
-        path = T.intercalate "/" $ pathInfo request
-        spath = T.unpack path
-        docPath = "build" </> spath
-        isAsset = "assets/" `isPrefixOf` spath
-        indexPath = docPath </> "index.html"
-        serveWithMime mime path' = respond $
-          responseFile ok200 [(hContentType, mime)] path' Nothing
-        serve' = serveWithMime (defaultMimeLookup path)
+    path = T.intercalate "/" $ pathInfo request
+    spath = T.unpack path
+    docPath = "build" </> spath
+    isAsset = "assets/" `isPrefixOf` spath
+    indexPath = docPath </> "index.html"
+    serveWithMime mime path' = respond $
+      responseFile ok200 [(hContentType, mime)] path' Nothing
+    serve' = serveWithMime (defaultMimeLookup path)
 
 
 watch :: DocbuilderOpts -> IO () -> IO ()
