@@ -12,12 +12,14 @@ import           Control.Monad
 import           Data.ByteString.Lazy          as L (writeFile)
 import           Data.Char
 import           Data.Foldable
+import           Data.Function                 (on)
 import           Data.List
 import           Data.Maybe                    (isJust)
 import           Data.Monoid
 import qualified Data.Text                     as T
 import qualified Data.Text.IO                  as TIO
 import           Data.Traversable
+import           Debug.Trace
 import           Network.HTTP.Types.Header
 import           Network.HTTP.Types.Status
 import           Network.Mime
@@ -28,6 +30,7 @@ import           System.Directory
 import           System.Environment
 import           System.FilePath
 import           System.FSNotify               as F
+import           System.IO                     (hPutStrLn, stderr)
 import           System.Process
 import           Text.Blaze.Html.Renderer.Utf8
 import           Text.Mustache                 (localAutomaticCompile, object,
@@ -53,12 +56,17 @@ data DocbuilderOpts = DocbuilderOpts { commands       :: [String]
 docArgs :: DocbuilderOpts
 docArgs = DocbuilderOpts
   { commands = def &= args
-  , sourceFolders = def
-  , port = 8080 &= name "p"
-  , pandocTemplate = def &= name "t"
-  , indexTemplate = def &= name "i"
+  , sourceFolders = def &= typ "DIRECTORY"
+  , port = 8080 &= name "p" &= typ "INT"
+  , pandocTemplate = def &= name "t" &= typ "FILE.html"
+  , indexTemplate = def &= name "i" &= typ "FILE.html"
   }
 
+
+logm :: String -> IO ()
+logm = hPutStrLn stderr
+logsm :: Show s => s -> IO ()
+logsm = logm . show
 
 
 buildDir :: String
@@ -100,7 +108,7 @@ markdown :: DocbuilderOpts -> String -> FilePath -> IO ()
 markdown (DocbuilderOpts { pandocTemplate }) in' out = do
   rawFile <- readFile in'
   case P.readMarkdown P.def rawFile of
-    Left err -> print err
+    Left err -> logsm err
     Right pandoc -> do
       let go template =
             let
@@ -111,7 +119,7 @@ markdown (DocbuilderOpts { pandocTemplate }) in' out = do
       case pandocTemplate of
         Nothing ->
           P.getDefaultTemplate mempty "html5" >>= \case
-            Left err -> print err
+            Left err -> logsm err
             Right template -> go template
         Just tName -> readFile tName >>= go
 
@@ -130,12 +138,16 @@ discoverTargets opts sourceDir outDir = do
   return $ join l
 
 
+scanDirectories :: DocbuilderOpts -> IO [(FilePath, Compiler)]
+scanDirectories opts = join <$> traverse (\dir -> discoverTargets opts dir (buildDir </> dir)) (sourceFolders opts)
+
+
 compile :: DocbuilderOpts -> IO ()
 compile opts = do
-  files <- join <$> traverse (\dir -> discoverTargets opts dir (buildDir </> dir)) (sourceFolders opts)
+  files <- scanDirectories opts
   createDirectoryIfMissing True buildDir
 
-  maybe (return ()) (`makeIndex` files) (indexTemplate opts)
+  makeIndex opts files
 
   for_ files $ \(source, c@(Compiler { invocation, compilerName })) -> do
     let target = makeTargetName c source
@@ -148,18 +160,24 @@ compile opts = do
     if needsRecompile
       then do
         createDirectoryIfMissing True (takeDirectory target)
-        putStrLn $ compileMessage compilerName source target
+        logm $ compileMessage compilerName source target
         invocation opts source target
-      else putStrLn $ "Skipping " <> source <> " (no update required)."
+      else logm $ "Skipping " <> source <> " (no update required)."
+
+
+makeIndex :: DocbuilderOpts -> [(FilePath, Compiler)] -> IO ()
+makeIndex = maybe (const $ return ()) makeIndex' . indexTemplate
   where
-    makeIndex name files = do
+    makeIndex' name files = do
       indexTemplate <- localAutomaticCompile name
       case indexTemplate of
-        Left err -> print err
-        Right t ->
+        Left err -> logsm err
+        Right t -> do
+          logm $ "Building index with template " <> name
           TIO.writeFile "build/index.html" $ substitute t
-            $ object ["documents" ~> map (uncurry $ flip makeTargetName) files]
-
+            $ object
+              [ "documents" ~> (sortBy (compare `on` length) . map (\(name, Compiler { newExtension }) -> name -<.> newExtension)) files
+              ]
 
 
 cleanBuildDir :: IO ()
@@ -194,11 +212,7 @@ watch opts inner = do
   cwd <- getCurrentDirectory
   F.withManager $ \manager -> do
     for (filter (/= buildDir) $ sourceFolders opts) $ \dir ->
-      watchTree
-        manager
-        dir
-        isCompileable
-        (go cwd)
+      watchTree manager dir isCompileable (go cwd)
     inner
   where
     isCompileable = isJust . findCompiler . eventPath
@@ -210,9 +224,12 @@ watch opts inner = do
       let path = makeRelative cwd $ eventPath e
       case findCompiler path of
         Just c@(Compiler { compilerName, invocation }) -> do
-          putStrLn $ "Recompiling " <> compilerName <> ": " <> path
+          logm $ "Recompiling " <> compilerName <> ": " <> path
           invocation opts (cwd </> path) (cwd </> makeTargetName c path)
-        Nothing -> putStrLn $ "No compiler found for " <> path
+          case e of
+            (Added _ _) -> scanDirectories opts >>= makeIndex opts
+            _ -> return ()
+        Nothing -> logm $ "No compiler found for " <> path
 
 
 
@@ -223,4 +240,4 @@ main = cmdArgs docArgs >>= ($) <$> for_ . commands <*> switch
     switch a "compile" = compile a
     switch a "watch" = watch a (forever (threadDelay 1000000))
     switch a@(DocbuilderOpts { port }) "serve" = compile a >> watch a (serve port)
-    switch _ a = putStrLn $ "Unrecognized command " <> a
+    switch _ a = logm $ "Unrecognized command " <> a
