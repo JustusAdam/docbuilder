@@ -18,14 +18,14 @@ Asciidoc compilation relies on [asciidoctor][] being installed on your system in
 
 
     $ docbuilder --help
-    The docbuilderopts program
+    Compile helper for asciidoc and markdown
 
-    docbuilderopts [OPTIONS] [ITEM]
+    docbuilder [OPTIONS] [COMMANDS]
 
     Common flags:
-      -s --sourcefolders=DIRECTORY
-      -p --port=INT                
-      -t --pandoctemplate=FILE.html
-      -i --indextemplate=FILE.html
+      -s --sourcefolders=DIR         Root folders for the source files
+      -p --port=INT                  Run the server on this port
+      -t --pandoctemplate=FILE.html  A html template for the mardown compiler
+      -i --indextemplate=FILE.html   Mustache template for the index page
       -? --help                      Display help message
       -V --version                   Print version information

@@ -55,12 +55,12 @@ data DocbuilderOpts = DocbuilderOpts { commands       :: [String]
 
 docArgs :: DocbuilderOpts
 docArgs = DocbuilderOpts
-  { commands = def &= args
-  , sourceFolders = def &= typ "DIRECTORY"
-  , port = 8080 &= name "p" &= typ "INT"
-  , pandocTemplate = def &= name "t" &= typ "FILE.html"
-  , indexTemplate = def &= name "i" &= typ "FILE.html"
-  }
+  { commands = def &= args &= typ "COMMANDS"
+  , sourceFolders = def &= typDir &= help "Root folders for the source files"
+  , port = 8080 &= name "p" &= typ "INT" &= help "Run the server on this port"
+  , pandocTemplate = def &= name "t" &= typ "FILE.html" &= help "A html template for the mardown compiler"
+  , indexTemplate = def &= name "i" &= typ "FILE.html" &= help "Mustache template for the index page"
+  } &= program "docbuilder" &= summary "Compile helper for asciidoc and markdown"
 
 
 logm :: String -> IO ()
