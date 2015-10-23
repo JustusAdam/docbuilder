@@ -65,8 +65,12 @@ logsm :: Show s => s -> IO ()
 logsm = logm . show
 
 
-buildDir :: String
+buildDir :: FilePath
 buildDir = "build"
+
+
+assetsDir :: FilePath
+assetsDir = "assets"
 
 
 compilers :: [Compiler]
@@ -115,16 +119,14 @@ markdown (DocbuilderOpts { pandocTemplate }) in' out = do
               L.writeFile out $ renderHtml document
       case pandocTemplate of
         Nothing ->
-          P.getDefaultTemplate mempty "html5" >>= \case
-            Left err -> logsm err
-            Right template -> go template
+          P.getDefaultTemplate mempty "html5" >>= either logsm go
         Just tName -> readFile tName >>= go
 
 
 discoverTargets :: FilePath -> FilePath -> IO [(FilePath, Compiler)]
 discoverTargets sourceDir outDir = do
   files <- filter (`notElem` [".", ".."]) <$> getDirectoryContents sourceDir
-  l <- for files $ \file -> do
+  fmap join $ for files $ \file -> do
     isDir <- doesDirectoryExist (sourceDir </> file)
     case findCompiler file of
       Just c -> do
@@ -132,7 +134,6 @@ discoverTargets sourceDir outDir = do
         return [(sourceFile, c)]
       Nothing | isDir -> discoverTargets (sourceDir </> file) (outDir </> file)
       _ -> return []
-  return $ join l
 
 
 scanDirectories :: DocbuilderOpts -> IO [(FilePath, Compiler)]
@@ -174,7 +175,7 @@ makeIndex' name' files = do
     Left err -> logsm err
     Right t -> do
       logm $ "Building index with template " <> name'
-      TIO.writeFile "build/index.html" $ substitute t
+      TIO.writeFile (buildDir </> "index.html") $ substitute t
         $ object [ "documents" ~> fileNames ]
   where
     fileNames =
@@ -207,8 +208,8 @@ app request respond =
   where
     path = T.intercalate "/" $ pathInfo request
     spath = T.unpack path
-    docPath = "build" </> spath
-    isAsset = "assets/" `isPrefixOf` spath
+    docPath = buildDir </> spath
+    isAsset = (assetsDir <> "/") `isPrefixOf` spath
     indexPath = docPath </> "index.html"
     serveWithMime mime path' = respond $
       responseFile ok200 [(hContentType, mime)] path' Nothing
