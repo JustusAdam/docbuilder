@@ -25,18 +25,18 @@ executable docbuilder
   -- other-modules:
   other-extensions:    LambdaCase, NamedFieldPuns, OverloadedStrings
   build-depends:
-      base >=4.8 && <4.9
-    , bytestring >=0.10 && <0.11
-    , directory >=1.2 && <1.3
-    , filepath >=1.4 && <1.5
-    , process >=1.2 && <1.3
-    , blaze-html >=0.8 && <0.9
-    , pandoc >=1.15 && <1.16
-    , warp >=3.1 && <3.2
-    , text >=1.2 && <1.3
-    , http-types >=0.8 && <0.9
-    , mime-types >=0.1 && <0.2
-    , wai >=3.0 && <3.1
+      base
+    , bytestring
+    , directory
+    , filepath
+    , process
+    , blaze-html
+    , pandoc
+    , warp
+    , text
+    , http-types
+    , mime-types
+    , wai
     , mustache >= 0.3
     , fsnotify
     , cmdargs

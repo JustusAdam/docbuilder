@@ -137,7 +137,7 @@ discoverTargets sourceDir outDir = do
 
 
 scanDirectories :: DocbuilderOpts -> IO [(FilePath, Compiler)]
-scanDirectories (DocbuilderOpts { sourceFolders }) =
+scanDirectories DocbuilderOpts{ sourceFolders } =
   join <$> traverse (($) <$> discoverTargets <*> (buildDir </>)) sourceFolders
 
 
@@ -148,7 +148,7 @@ compile opts = do
 
   makeIndex opts files
 
-  for_ files $ \(source, c@(Compiler { invocation, compilerName })) -> do
+  for_ files $ \(source, c@Compiler{ invocation, compilerName }) -> do
     let target = makeTargetName c source
     needsRecompile <- do
       targetExists <- doesFileExist target
@@ -248,5 +248,5 @@ main = cmdArgs docArgs >>= ($) <$> for_ . commands <*> switch
     switch _ "clean" = cleanBuildDir
     switch a "compile" = compile a
     switch a "watch" = watch a (forever (threadDelay 1000000))
-    switch a@(DocbuilderOpts { port }) "serve" = compile a >> watch a (serve port)
+    switch a@DocbuilderOpts { port } "serve" = compile a >> watch a (serve port)
     switch _ a = logm $ "Unrecognized command " <> a
